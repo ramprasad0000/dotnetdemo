@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dotnet-deployment
+  labels:
+    app: dotapplication
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dotapplication
+  template:
+    metadata:
+      labels:
+        app: dotapplication
+    spec:
+      containers:
+      - name: dotapplication
+        image: test123678.azurecr.io/sample:3.0.0
+        ports:
+        - containerPort: 80
+      imagePullSecrets:
+      - name: myapp
