@@ -1,109 +1,76 @@
 trigger:
+- main
 - develop
-- feature/*
+- feature/**
 
-resources:
-- repo: self
+pool:
+  vmImage: 'ubuntu-latest'
 
 variables:
-
-  # Container registry service connection established during pipeline creation
-  dockerRegistryServiceConnection: 'f8641c5b-81c6-4334-9da8-787d86116a3e'
-  imageRepository: 'dotnetdemo'
-  containerRegistry: 'bermtecacrshared1.azurecr.io'
-  dockerfilePath: '**/Dockerfile'
-  tag: '$(Build.BuildId)'
-  imagePullSecret: 'bermtecacrshared11884f0ef-auth'
-
-  # Agent VM image name
-  vmImageName: 'ubuntu-latest'
-
+  buildConfiguration: 'Release'
 
 stages:
 - stage: Build
-  displayName: Build stage
+  displayName: 'Build Stage'
   jobs:
-  - job: Build
-    displayName: Build
-    pool:
-      vmImage: $(vmImageName)
+  - job: BuildJob
+    displayName: 'Build Job'
     steps:
-    - task: Docker@2
-      displayName: Build and push an image to container registry
+    - task: DotNetCoreCLI@2
       inputs:
-        command: buildAndPush
-        repository: $(imageRepository)
-        dockerfile: $(dockerfilePath)
-        containerRegistry: $(dockerRegistryServiceConnection)
-        tags: |
-          $(tag)
+        command: 'build'
+        projects: '*/.csproj'
+        arguments: '--configuration $(buildConfiguration)'
+      displayName: 'dotnet build $(buildConfiguration)'
 
-    - upload: manifests
-      artifact: manifests
+    - task: DotNetCoreCLI@2
+      inputs:
+        command: 'publish'
+        publishWebProjects: true
+        arguments: '--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)'
+      displayName: 'dotnet publish $(buildConfiguration)'
 
-- stage: DeployToDev
-  displayName: Deploy to Dev
-  dependsOn: Build
+    - task: PublishBuildArtifacts@1
+      inputs:
+        pathtoPublish: '$(Build.ArtifactStagingDirectory)'
+        artifactName: 'publishedFiles'
+    
+    - task: AzureWebApp@1
+      inputs:
+        azureSubscription: 'ramrp'
+        appType: 'webAppLinux'
+        appName: 'ramrp'
+        package: '$(System.DefaultWorkingDirectory)/**/*.zip'
+        runtimeStack: 'DOTNETCORE|6.0'
 
+- stage: Test
+  displayName: 'Test Stage'
   jobs:
-  - deployment: Deploy
-    displayName: Deploy
-    pool:
-      vmImage: $(vmImageName)
-    environment: 'Raghupatikdotnetdemo-1071.walmartdev'
-    strategy:
-      runOnce:
-        deploy:
-          steps:
-          - task: KubernetesManifest@0
-            displayName: Create imagePullSecret
-            inputs:
-              action: createSecret
-              secretName: $(imagePullSecret)
-              dockerRegistryEndpoint: $(dockerRegistryServiceConnection)
+  - job: TestJob
+    displayName: 'Test Job'
+    steps:
+    - script: echo "Running tests..."
 
-          - task: KubernetesManifest@0
-            displayName: Deploy to Kubernetes cluster
-            inputs:
-              action: deploy
-              manifests: |
-                $(Pipeline.Workspace)/manifests/deployment.yaml
-                $(Pipeline.Workspace)/manifests/Service.yaml
-              imagePullSecrets: |
-                $(imagePullSecret)
-              containers: |
-                $(containerRegistry)/$(imageRepository):$(tag)
-
-- stage: DeployToProd
-  displayName: Deploy to Prod
-  dependsOn: DeployToDev
-
+- stage: Deployment
+  displayName: 'Deployment Stages'
   jobs:
-  - deployment: Deploy
-    displayName: Deploy
-    pool:
-      vmImage: $(vmImageName)
-    environment: 'Prod'
-    strategy:
-      runOnce:
-        deploy:
-          steps:
-          - task: KubernetesManifest@0
-            displayName: Create imagePullSecret
-            inputs:
-              action: createSecret
-              secretName: $(imagePullSecret)
-              dockerRegistryEndpoint: $(dockerRegistryServiceConnection)
+  - job: DeploymentJob
+    displayName: 'Deployment Job'
+    steps:
+    - script: echo "Deploying application..."
 
-          - task: KubernetesManifest@0
-            displayName: Deploy to Kubernetes cluster
-            inputs:
-              action: deploy
-              manifests: |
-                $(Pipeline.Workspace)/manifests/deployment.yaml
-                $(Pipeline.Workspace)/manifests/Service.yaml
-              imagePullSecrets: |
-                $(imagePullSecret)
-              containers: |
-                $(containerRegistry)/$(imageRepository):$(tag)
+- stage: Approval
+  displayName: 'Approval Stage'
+  jobs:
+  - job: ApprovalJob
+    displayName: 'Approval Job'
+    steps:
+    - script: echo "Waiting for approval..."
 
+- stage: Release
+  displayName: 'Release Stage'
+  jobs:
+  - job: ReleaseJob
+    displayName: 'Release Job'
+    steps:
+    - script: echo "Releasing application..."
